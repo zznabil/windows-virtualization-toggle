@@ -1,0 +1,12 @@
+# Windows temporary files
+*.tmp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+.trae/
+
+# OS files
+Thumbs.db
+Desktop.ini
