@@ -8,7 +8,7 @@ Download both `Windows-Feature-Selector.bat` and `Windows-Feature-Selector.ps1` 
 
 - Up/Down: choose a feature; Space or Enter: check/uncheck it; A: check all/none; R: refresh status.
 - E/D: propose enabling/disabling checked features (or the highlighted feature when none are checked). Confirm with Y; N cancels.
-- U: request a new administrator menu. Select features again in that window.
+- U: request a new administrator menu. Select features again in that window; the original menu closes when it exits.
 - Type `quit` or press Esc to exit. Minimum console size: 80 columns by 24 rows.
 
 ## Features
@@ -22,7 +22,7 @@ Download both `Windows-Feature-Selector.bat` and `Windows-Feature-Selector.ps1` 
 7. Memory integrity (HVCI)
 8. System-wide Control Flow Guard (CFG)
 
-Firmware virtualization and whether a hypervisor is running are read-only indicators; firmware settings are **not** changed. DEP and ASLR are not modified.
+Firmware virtualization and whether a hypervisor is running are read-only indicators; firmware settings are **not** changed. DEP and ASLR are not modified. VBS/HVCI status reflects local registry configuration, not proof the protection is running; policy may override it.
 
 ## Command line
 
@@ -34,8 +34,8 @@ From a terminal in the downloaded folder:
 ./Windows-Feature-Selector.bat -Action Enable -Selection 1,2
 ```
 
-`-Selection` accepts numbers, comma-separated ranges, or `all`. Enable/Disable require an elevated console and an explicit `APPLY` prompt. Status works without elevation, though some optional-feature states require elevation to query.
+`-Selection` accepts numbers, comma-separated ranges, or `all`. Command-line Enable/Disable require an elevated console and an explicit `APPLY` prompt; the interactive menu confirms with Y. Status works without elevation, though some optional-feature states require elevation to query.
 
 ## Safety
 
-Changing Windows optional features, VBS, HVCI, or CFG can affect security, compatibility, and virtualization workloads. The script refuses to override policy-managed or UEFI-locked VBS/HVCI, checks their dependency order, and never restarts Windows automatically. A restart may be needed for changes to take effect. Review the selection and current state before approving.
+Changing Windows optional features, VBS, HVCI, or CFG can affect security, compatibility, and virtualization workloads. The script checks recognized DeviceGuard policy values and UEFI-lock flags before changing VBS/HVCI; detected or unreadable indicators block changes. It also checks their dependency order and never restarts Windows automatically. A restart may be needed for changes to take effect. Review the selection and current state before approving.

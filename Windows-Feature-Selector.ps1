@@ -35,6 +35,11 @@ function Show-HardwareStatus {
     Write-Output "Firmware virtualization: $firmware"
     Write-Output "Hypervisor running: $hypervisor"
 }
+function Get-RegistrySettings {
+    param([string]$Path)
+    try { Get-ItemProperty -LiteralPath $Path -ErrorAction Stop }
+    catch [System.Management.Automation.ItemNotFoundException] { return $null }
+}
 function Read-MenuInput {
     param([string]$Prompt)
     [Console]::Write("${Prompt}: ")
@@ -128,10 +133,16 @@ foreach ($item in $selected) {
     } else {
         $path = if ($item.Key -eq 'VBS') { $vbsPath } else { $hvciPath }
         $name = if ($item.Key -eq 'VBS') { 'EnableVirtualizationBasedSecurity' } else { 'Enabled' }
-        $value = (Get-ItemProperty -Path $path -Name $name -ErrorAction SilentlyContinue).$name
-        $state = if ($null -eq $value) { 'Not configured' }
-                 elseif ($value -eq 1) { 'Configured On (restart may be needed)' }
-                 else { 'Configured Off (restart may be needed)' }
+        try {
+            $value = (Get-RegistrySettings $path).$name
+            $state = if ($null -eq $value) { 'Not configured' }
+                     elseif ($value -eq 1) { 'Configured On (restart may be needed)' }
+                     elseif ($value -eq 0) { 'Configured Off (restart may be needed)' }
+                     else { "Unknown local registry value ($value)" }
+        } catch {
+            if ($Action -ne 'Status') { throw "Cannot query $($item.Label): $_. No changes made." }
+            $state = "Unavailable: $_"
+        }
     }
     Write-Output ("{0}: {1}" -f $item.Label, $state)
 }
@@ -139,22 +150,24 @@ foreach ($item in $selected) {
 if ($Action -eq 'Status') { return }
 
 $keys = @($selected | ForEach-Object { $_.Key })
-$hvciOn = (Get-ItemProperty -Path $hvciPath -Name Enabled -ErrorAction SilentlyContinue).Enabled -eq 1
-$vbsOn = (Get-ItemProperty -Path $vbsPath -Name EnableVirtualizationBasedSecurity -ErrorAction SilentlyContinue).EnableVirtualizationBasedSecurity -eq 1
-if ($Action -eq 'Enable' -and $keys -contains 'HVCI' -and -not $vbsOn -and $keys -notcontains 'VBS') {
-    throw 'Memory integrity requires VBS. Select VBS too, or enable VBS first. No changes made.'
-}
-if ($Action -eq 'Disable' -and $keys -contains 'VBS' -and $hvciOn -and $keys -notcontains 'HVCI') {
-    throw 'Memory integrity is enabled. Select it too before disabling VBS. No changes made.'
-}
 if ($keys -contains 'VBS' -or $keys -contains 'HVCI') {
-    $policy = Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard' -ErrorAction SilentlyContinue
+    $vbs = Get-RegistrySettings $vbsPath
+    $hvci = Get-RegistrySettings $hvciPath
+    $policy = Get-RegistrySettings 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'
     if ($policy -and ($null -ne $policy.EnableVirtualizationBasedSecurity -or $null -ne $policy.HypervisorEnforcedCodeIntegrity)) {
         throw 'VBS/HVCI is managed by policy; refusing to override it. No changes made.'
     }
-    if ((Get-ItemProperty $vbsPath -Name Locked -ErrorAction SilentlyContinue).Locked -eq 1 -or
-        (Get-ItemProperty $hvciPath -Name Locked -ErrorAction SilentlyContinue).Locked -eq 1) {
+    if (($null -ne $vbs.Locked -and $vbs.Locked -ne 0) -or
+        ($null -ne $hvci.Locked -and $hvci.Locked -ne 0)) {
         throw 'VBS/HVCI has a UEFI lock; refusing to change it. No changes made.'
+    }
+    $vbsOn = $vbs.EnableVirtualizationBasedSecurity -eq 1
+    $hvciOn = $null -ne $hvci.Enabled -and $hvci.Enabled -ne 0
+    if ($Action -eq 'Enable' -and $keys -contains 'HVCI' -and -not $vbsOn -and $keys -notcontains 'VBS') {
+        throw 'Memory integrity requires VBS. Select VBS too, or enable VBS first. No changes made.'
+    }
+    if ($Action -eq 'Disable' -and $keys -contains 'VBS' -and $hvciOn -and $keys -notcontains 'HVCI') {
+        throw 'Memory integrity may be enabled. Select it too before disabling VBS. No changes made.'
     }
 }
 
@@ -269,7 +282,7 @@ function Invoke-Tui {
         while ($true) {
             if ([Console]::WindowWidth -lt 80 -or [Console]::WindowHeight -lt 24) {
                 [Console]::Clear()
-                [Console]::WriteLine('Resize the console to at least 80 columns by 24 rows. Press Esc to quit.')
+                [Console]::WriteLine('Resize to 80x24; press any key to retry, Esc to quit.')
                 if ([Console]::ReadKey($true).Key -eq [ConsoleKey]::Escape) { break }
                 continue
             }
